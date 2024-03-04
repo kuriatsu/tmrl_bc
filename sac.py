@@ -9,17 +9,17 @@ from tmrl.training_offline import TrainingOffline # base training class
 import numpy as np
 import os
 
-epochs = 50
+epochs = 10000 
 rounds = 100
-steps = 2
-start_training = 10
-max_training_steps_per_env_step = 10
-update_model_interval = 100
-update_buffer_interval = 50
+steps = 200 
+start_training = 1000
+max_training_steps_per_env_step = 4.0 
+update_model_interval = 200
+update_buffer_interval = 200
 device_trainer = "cuda"
-memory_size = 10000
-batch_size = 100
-max_samples_per_episode = 100
+memory_size = 1000000
+batch_size = 256 
+max_samples_per_episode = 1000
 
 
 memory_base_cls = cfg_obj.MEM
@@ -29,7 +29,8 @@ dataset_path = "/home/kuriatsu/Source/tmrl_bc/data/"
 obs_preprocessor = cfg_obj.OBS_PREPROCESSOR
 
 ## rtgym environment class
-env_vls = cfg_objj.ENV_CLS
+env_cls = cfg_obj.ENV_CLS
+print(env_cls)
 
 device_worker = "cpu"
 
@@ -88,21 +89,21 @@ def conv2d_out_dims(conv_layer, h_in, w_in):
     w_out = floor((h_in + 2 * conv_layer.padding[1] - conv_layer.dilation[1] * (conv_layer.kernel_size[1] - 1) - 1) / conv_layer.stride[1] + 1)
     return h_out, w_out
 
-class VanillaCNN(nn.module):
-    def __init__(self, q_net)
+class VanillaCNN(nn.Module):
+    def __init__(self, q_net):
         super(VanillaCNN, self).__init__()
         self.q_net = q_net
 
         # default input is grayscale 64x64 pix
         self.h_out, self.w_out = img_height, img_width
         self.conv1 = nn.Conv2d(imgs_buf_len, 64, 8, stride=2)
-        self.h_out, self.w_out = con2d_out_dims(self.conv1, self.h_out, self.w_out)
+        self.h_out, self.w_out = conv2d_out_dims(self.conv1, self.h_out, self.w_out)
         self.conv2 = nn.Conv2d(64, 64, 4, stride=2)
-        self.h_out, self.w_out = con2d_out_dims(self.conv2, self.h_out, self.w_out)
+        self.h_out, self.w_out = conv2d_out_dims(self.conv2, self.h_out, self.w_out)
         self.conv3 = nn.Conv2d(64, 128, 4, stride=2)
-        self.h_out, self.w_out = con2d_out_dims(self.conv2, self.h_out, self.w_out)
-        self.conv2 = nn.Conv2d(128, 128, 4, stride=2)
-        self.h_out, self.w_out = con2d_out_dims(self.conv2, self.h_out, self.w_out)
+        self.h_out, self.w_out = conv2d_out_dims(self.conv2, self.h_out, self.w_out)
+        self.conv4 = nn.Conv2d(128, 128, 4, stride=2)
+        self.h_out, self.w_out = conv2d_out_dims(self.conv2, self.h_out, self.w_out)
         self.out_channels = self.conv4.out_channels
 
         self.flat_features = self.out_channels * self.h_out * self.w_out
@@ -120,7 +121,7 @@ class VanillaCNN(nn.module):
         ## thus, the output is 1 dim for critic
         ## output layer for policies is defined later
         self.mlp_layers = [256, 256, 1] if self.q_net else [256, 256]
-        self.mlp([self.mlp_input_features] + self.mlp_layers, nn.ReLu)
+        self.mlp = mlp([self.mlp_input_features] + self.mlp_layers, nn.ReLU)
 
     def forward(self, x):
         if self.q_net:
@@ -154,7 +155,7 @@ class VanillaCNN(nn.module):
         x = self.mlp(x)
         return x
 
-    import json
+import json
 
 
 class TorchJSONEncoder(json.JSONEncoder):
@@ -180,7 +181,7 @@ class TorchJSONDecoder(json.JSONDecoder):
                 dct[key] = torch.Tensor(dct[key])
         return dct
 
-class MyActorModule(TorchhActorModule):
+class MyActorModule(TorchActorModule):
     def __init__(self, observation_space, action_space):
         super().__init__(observation_space, action_space)
 
@@ -216,7 +217,8 @@ class MyActorModule(TorchhActorModule):
             The loaded ActorModule instance
         """
         self.device = device
-        with open(path, 'r') as json_file:
+        print(path)
+        with open(path, 'r', encoding="UTF-8", errors="ignore") as json_file:
             state_dict = json.load(json_file, cls=TorchJSONDecoder)
         self.load_state_dict(state_dict)
         self.to_device(device)
@@ -295,7 +297,7 @@ from tmrl.training import TrainingAgent
 from tmrl.custom.utils.nn import copy_shared, no_grad
 from tmrl.util import cached_property
 from copy import deepcopy
-import itrtools
+import itertools
 from torch.optim import Adam
 
 class SACTrainingAgent(TrainingAgent):
@@ -303,7 +305,7 @@ class SACTrainingAgent(TrainingAgent):
     model_nograd = cached_property(lambda self: no_grad(copy_shared(self.model)))
 
     def __init__(self,
-                 observation_space=None
+                 observation_space=None,
                  action_space=None,
                  device=None,
                  model_cls=VanillaCNNActorCritic,
@@ -434,32 +436,30 @@ if __name__ == "__main__":
 
     if sys.argv[1] == "trainer":
         my_trainer = Trainer(training_cls=training_cls,
-                             server_ip=server_ip,
-                             server_port=server_port,
-                             password=password,
-                             security=security)
-        my_trainer.run_with_wandb(entity=wandb_entity,
-                                  projject=wandb_project,
-                                  run_id=wandb_run_id)
+                             server_ip="55555",
+                             server_port="0.0.0.0",
+                             password="",
+                             security="TLS")
+        my_trainer.run()
 
     elif sys.argv[1] == "worker" or sys.argv[1] == "test":
         rw = RolloutWorker(env_cls=env_cls,
                            actor_module_cls=MyActorModule,
                            sample_compressor=sample_compressor,
                            device=device_worker,
-                           server_ip=server_ip_for_worker,
-                           server_port=server_port,
-                           password=password,
-                           security=security,
-                           max_sample_per_episode=max_sample_per_episode,
+                           server_ip="0.0.0.0",
+                           server_port="55555",
+                           password="",
+                           security="TLS",
+                           max_samples_per_episode=max_samples_per_episode,
                            obs_preprocessor=obs_preprocessor,
-                           standalone=args.test)
+                           standalone=False)
         rw.run()
     elif sys.argv[1] == "server":
         import time
-        server = Server(port=server_port,
-                        password=password,
-                        security=security)
+        server = Server(port="55555",
+                        password="",
+                        security="TLS")
 
         while True:
             time.sleep(1.0)
